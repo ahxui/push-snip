@@ -29,8 +29,16 @@ button.s.on{background:#2f8f5b}
 const c=document.getElementById('c'),g=c.getContext('2d'),b=document.getElementById('b'),$=i=>document.getElementById(i);
 const W=360,H=590;c.width=W*2;c.height=H*2;g.scale(2,2);
 const X=180,Y0=128,RIM=410,BCY=416,BA=126,BB=110,WL=438,SITY=240,FL=568;
+const MAX_FLUID=800,MAX_PIECES=30,MAX_STAINS=150,MAX_GAS=50,MAX_BUBBLES=100;
 const P={hs:[28,58]};
 const CW=4,NC=Math.ceil(BA*2/CW),HF=new Array(NC).fill(0);
+const fluidPool=[],gasPool=[],bubblePool=[];
+function getFluid(){return fluidPool.length>0?fluidPool.pop():{};}
+function releaseFluid(f){if(fluidPool.length<100)fluidPool.push(f);}
+function getGas(){return gasPool.length>0?gasPool.pop():{};}
+function releaseGas(g){if(gasPool.length<50)gasPool.push(g);}
+function getBubble(){return bubblePool.length>0?bubblePool.pop():{};}
+function releaseBubble(b){if(bubblePool.length<50)bubblePool.push(b);}
 const fy=x=>BCY+BB*Math.sqrt(Math.max(0,1-((x-X)/BA)**2)),capAt=x=>fy(x)-(WL-26);
 const KF=[[28,58],[46,72],[92,46],[3,66],[22,8]];
 function hsFor(v){const p=Math.min(.9999,Math.max(0,v))*(KF.length-1),i=Math.floor(p),f=p-i,a=KF[i],q=KF[i+1];return [a[0]+(q[0]-a[0])*f,a[1]+(q[1]-a[1])*f].map(n=>Math.round(n*10)/10)}
@@ -61,22 +69,32 @@ let gasT=0,gasPulse=0,pushT=0,lead=0,crown=0,crowned=false,nextRumbleS=0;
 
 // ---------- audio
 let AC=null,N1,NG,NF,OS,OF,OG,OUT,ECHO,BO,BG;
+let activeOscillators=[],activeSources=[];
+function cleanupAudio(){
+  const now=AC?AC.currentTime:0;
+  activeOscillators.forEach(osc=>{try{osc.stop(now+0.1);}catch(e){}});
+  activeSources.forEach(src=>{try{src.stop(now+0.1);}catch(e){}});
+  activeOscillators=[];activeSources=[];
+}
 function audioInit(){
-  if(AC){if(AC.state!=='running')AC.resume();return}
+  if(AC&&AC.state==='running')return;
   try{
-    AC=new (window.AudioContext||window.webkitAudioContext)();
-    OUT=AC.createGain();OUT.connect(AC.destination);
-    const dl=AC.createDelay(.3);dl.delayTime.value=.05;const fb=AC.createGain();fb.gain.value=.4;ECHO=AC.createGain();ECHO.gain.value=.06;
-    OUT.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(ECHO);ECHO.connect(AC.destination);
-    const nb=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate),d=nb.getChannelData(0);
-    for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-    N1=AC.createBufferSource();N1.buffer=nb;N1.loop=true;
-    NF=AC.createBiquadFilter();NF.type='bandpass';NF.Q.value=2;
-    NG=AC.createGain();NG.gain.value=0;N1.connect(NF);NF.connect(NG);NG.connect(OUT);
-    OS=AC.createOscillator();OS.type='sawtooth';OS.frequency.value=70;
-    OF=AC.createBiquadFilter();OF.type='lowpass';OF.frequency.value=380;
-    OG=AC.createGain();OG.gain.value=0;OS.connect(OF);OF.connect(OG);OG.connect(OUT);
-    N1.start();OS.start();
+    if(!AC){
+      AC=new (window.AudioContext||window.webkitAudioContext)();
+      OUT=AC.createGain();OUT.gain.value=0.8;OUT.connect(AC.destination);
+      const dl=AC.createDelay(.3);dl.delayTime.value=.05;const fb=AC.createGain();fb.gain.value=.4;ECHO=AC.createGain();ECHO.gain.value=.06;
+      OUT.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(ECHO);ECHO.connect(AC.destination);
+      const nb=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate),d=nb.getChannelData(0);
+      for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+      N1=AC.createBufferSource();N1.buffer=nb;N1.loop=true;
+      NF=AC.createBiquadFilter();NF.type='bandpass';NF.Q.value=2;
+      NG=AC.createGain();NG.gain.value=0;N1.connect(NF);NF.connect(NG);NG.connect(OUT);
+      OS=AC.createOscillator();OS.type='sawtooth';OS.frequency.value=70;
+      OF=AC.createBiquadFilter();OF.type='lowpass';OF.frequency.value=380;
+      OG=AC.createGain();OG.gain.value=0;OS.connect(OF);OF.connect(OG);OG.connect(OUT);
+      N1.start();OS.start();
+    }
+    if(AC.state!=='running')AC.resume();
   }catch(e){AC=null}
 }
 function soundTick(t){
@@ -99,6 +117,8 @@ function tone(f0,f1,dur,gain,type,lp){
   o.frequency.setValueAtTime(f0,T);o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),T+dur);
   gn.gain.setValueAtTime(.0001,T);gn.gain.linearRampToValueAtTime(P.vol*gain,T+.02);gn.gain.exponentialRampToValueAtTime(.001,T+dur);
   o.connect(f);f.connect(gn);gn.connect(OUT);o.start(T);o.stop(T+dur+.05);
+  activeOscillators.push(o);
+  setTimeout(()=>{const idx=activeOscillators.indexOf(o);if(idx>-1)activeOscillators.splice(idx,1);},(dur+0.1)*1000);
 }
 function noiseBurst(type,f0,q,dur,gain){
   if(!AC||P.vol<=0)return;
@@ -106,6 +126,8 @@ function noiseBurst(type,f0,q,dur,gain){
   n.buffer=N1.buffer;f.type=type;f.frequency.value=f0;f.Q.value=q;
   gn.gain.setValueAtTime(P.vol*gain,T);gn.gain.exponentialRampToValueAtTime(.001,T+dur);
   n.connect(f);f.connect(gn);gn.connect(OUT);n.start(T,Math.random());n.stop(T+dur+.02);
+  activeSources.push(n);
+  setTimeout(()=>{const idx=activeSources.indexOf(n);if(idx>-1)activeSources.splice(idx,1);},(dur+0.1)*1000);
 }
 function toot(){tone((60+P.gas*90)*P.pitch,45,.25,.1+.3*P.gas,'sawtooth',500)}
 function pop(){tone(190,55,.12,.35,'sine',900);if(P.liq>.4)tone(420,120,.14,.15*P.liq,'triangle',900)}
@@ -173,7 +195,7 @@ function fartSound(kind,k){
 }
 
 // ---------- gas / toot / blast
-function puff(n){for(let i=0;i<n;i++)gp.push({x:hx+(Math.random()-.5)*10,y:hy+8,vx:(Math.random()-.5)*50,vy:15+Math.random()*40,r:5+Math.random()*5,life:1.3,l0:1.3})}
+function puff(n){for(let i=0;i<n;i++){const p=getGas();p.x=hx+(Math.random()-.5)*10;p.y=hy+8;p.vx=(Math.random()-.5)*50;p.vy=15+Math.random()*40;p.r=5+Math.random()*5;p.life=1.3;p.l0=1.3;gp.push(p);}}
 function fartBurst(){
   const fr=P.fr,k=.5+fr;
   fartSound(Math.random()<.6+.3*fr?[1,2,2,3][Math.floor(Math.random()*4)]:Math.floor(Math.random()*6),k);
@@ -202,6 +224,7 @@ function startBlow(k){
   vib([60,30,160,40,120]);
   noiseBurst('lowpass',900,.7,.5,.6);tone(80*P.pitch,30,.7,.6,'sawtooth',400);
 }
+function trim(max,arr,releaseFn){while(arr.length>max){releaseFn(arr.shift());}}
 function emitBlow(dt,t){
   const I=Math.min(1.3,stored/1.15)*(.75+.25*Math.sin(t*21+Math.sin(t*5)*2));
   emitAcc+=dt*(70+650*I)*(1+.3*P.mess);
@@ -212,11 +235,11 @@ function emitBlow(dt,t){
     const ang=(core?(Math.random()-.5)*.35:(Math.random()-.5)*2*cone)+sweep;
     const spd=(260+Math.random()*(500+900*I))*(core?1.1:.85)*(big?.8:1);
     const r=(2.5+hr*.28)*(.5+Math.random())*(big?2.4:1)*(core?1.15:.8);
-    const q={x:hx+(Math.random()-.5)*hr,y:hy+hr*.4,vx:Math.sin(ang)*spd,vy:Math.max(40,Math.cos(ang)*spd),r,w:0,hs:P.hs};
+    const q=getFluid();q.x=hx+(Math.random()-.5)*hr;q.y=hy+hr*.4;q.vx=Math.sin(ang)*spd;q.vy=Math.max(40,Math.cos(ang)*spd);q.r=r;q.w=0;q.hs=P.hs;
     if(core&&!big){q.prev=(lastP&&!lastP.dead)?lastP:null;lastP=q}
     fl.push(q);
   }
-  if(fl.length>1300)trim(1300);
+  if(fl.length>MAX_FLUID)trim(MAX_FLUID,fl,releaseFluid);
 }
 function endBlow(){
   blow=null;stored=0;pokeAmt=1.2;
@@ -481,7 +504,7 @@ function emit(sp,dt,t){
     if(!wild&&!small){q.prev=(lastP&&!lastP.dead)?lastP:null;lastP=q}
     fl.push(q);
   }
-  if(fl.length>900)trim(900);
+  if(fl.length>MAX_FLUID)trim(MAX_FLUID,fl,releaseFluid);
 }
 function deposit(q){
   pileHs=q.hs||pileHs;
@@ -953,6 +976,11 @@ function tick(now){
   acc+=dt;while(acc>=1/90){step(1/90);acc-=1/90}
   const olds=pieces.filter(p=>p!==cur);
   if(olds.length>16){const o=olds[0];o.fade-=dt*2;if(o.fade<=0)pieces.splice(pieces.indexOf(o),1)}
+  trim(MAX_FLUID,fl,releaseFluid);
+  trim(MAX_GAS,gp,releaseGas);
+  trim(MAX_BUBBLES,bubs,releaseBubble);
+  if(pieces.length>MAX_PIECES){const o=pieces.filter(p=>p!==cur)[0];if(o)pieces.splice(pieces.indexOf(o),1);}
+  if(stains.length>MAX_STAINS)stains.splice(0,stains.length-MAX_STAINS);
   draw();requestAnimationFrame(tick);
 }
 function draw(){
