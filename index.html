@@ -224,7 +224,7 @@ function startBlow(k){
   vib([60,30,160,40,120]);
   noiseBurst('lowpass',900,.7,.5,.6);tone(80*P.pitch,30,.7,.6,'sawtooth',400);
 }
-function trim(max,arr,releaseFn){while(arr.length>max){releaseFn(arr.shift());}}
+function trimExcess(max,arr,releaseFn){while(arr.length>max){releaseFn(arr.shift());}}
 function emitBlow(dt,t){
   const I=Math.min(1.3,stored/1.15)*(.75+.25*Math.sin(t*21+Math.sin(t*5)*2));
   emitAcc+=dt*(70+650*I)*(1+.3*P.mess);
@@ -239,7 +239,7 @@ function emitBlow(dt,t){
     if(core&&!big){q.prev=(lastP&&!lastP.dead)?lastP:null;lastP=q}
     fl.push(q);
   }
-  if(fl.length>MAX_FLUID)trim(MAX_FLUID,fl,releaseFluid);
+  if(fl.length>MAX_FLUID)trimExcess(MAX_FLUID,fl,releaseFluid);
 }
 function endBlow(){
   blow=null;stored=0;pokeAmt=1.2;
@@ -504,7 +504,7 @@ function emit(sp,dt,t){
     if(!wild&&!small){q.prev=(lastP&&!lastP.dead)?lastP:null;lastP=q}
     fl.push(q);
   }
-  if(fl.length>MAX_FLUID)trim(MAX_FLUID,fl,releaseFluid);
+  if(fl.length>MAX_FLUID)trimExcess(MAX_FLUID,fl,releaseFluid);
 }
 function deposit(q){
   pileHs=q.hs||pileHs;
@@ -976,9 +976,9 @@ function tick(now){
   acc+=dt;while(acc>=1/90){step(1/90);acc-=1/90}
   const olds=pieces.filter(p=>p!==cur);
   if(olds.length>16){const o=olds[0];o.fade-=dt*2;if(o.fade<=0)pieces.splice(pieces.indexOf(o),1)}
-  trim(MAX_FLUID,fl,releaseFluid);
-  trim(MAX_GAS,gp,releaseGas);
-  trim(MAX_BUBBLES,bubs,releaseBubble);
+  trimExcess(MAX_FLUID,fl,releaseFluid);
+  trimExcess(MAX_GAS,gp,releaseGas);
+  trimExcess(MAX_BUBBLES,bubs,releaseBubble);
   if(pieces.length>MAX_PIECES){const o=pieces.filter(p=>p!==cur)[0];if(o)pieces.splice(pieces.indexOf(o),1);}
   if(stains.length>MAX_STAINS)stains.splice(0,stains.length-MAX_STAINS);
   draw();requestAnimationFrame(tick);
